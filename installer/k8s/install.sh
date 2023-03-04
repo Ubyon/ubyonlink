@@ -39,14 +39,28 @@ while getopts "hd:t:k:" opt; do
 done
 shift $((OPTIND - 1))
 
-#enable_k8s_access()
-#{
-#  K8S_SA_FILE=wget
-#}
+disable_k8s_access()
+{
+  kubectl delete -f https://raw.githubusercontent.com/Ubyon/ubyonlink/main/installer/k8s/k8s_sa.yaml
+}
+
+enable_k8s_access()
+{
+  kubectl apply -f https://raw.githubusercontent.com/Ubyon/ubyonlink/main/installer/k8s/k8s_sa.yaml
+  NAMESPACE=default
+  SECRET_NAME=ubyon-api-service-account-token
+  K8S_SA_TOKEN=$(kubectl get secret --namespace "${NAMESPACE}" "${SECRET_NAME}" -o json | jq -r '.data["token"]' | base64 -d)
+  echo "$K8S_SA_TOKEN"
+  export K8S_SA_TOKEN
+  kubectl get cm ubyonac -o yaml | sed 's/k8s_sa_token: <k8s_sa_token>/k8s_sa_token: '"$K8S_SA_TOKEN"'/g' | kubectl apply -f -
+}
 
 if [ "$ENABLE_K8S_ACCESS" == true ]; then
   echo "Enabling kubernetes access !!!!"
   enable_k8s_access
+  exit
+elif [ "$ENABLE_K8S_ACCESS" == false ]; then
+  disable_k8s_access
   exit
 fi
 
