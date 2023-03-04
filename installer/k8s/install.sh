@@ -14,6 +14,7 @@ Options:
 
 UBYON_TG_FQDN="ulink.ubyon.com"
 OUTDIR="."
+ENABLE_K8S_ACCESS=true
 
 while getopts "hd:t:k:" opt; do
   case "$opt" in
@@ -39,20 +40,32 @@ while getopts "hd:t:k:" opt; do
 done
 shift $((OPTIND - 1))
 
-#enable_k8s_access()
-#{
-#  K8S_SA_FILE=wget
-#}
+disable_k8s_access()
+{
+  kubectl delete -f https://raw.githubusercontent.com/Ubyon/ubyonlink/main/installer/k8s/k8s_sa.yaml
+}
+
+enable_k8s_access()
+{
+  kubectl apply -f https://raw.githubusercontent.com/Ubyon/ubyonlink/main/installer/k8s/k8s_sa.yaml
+  NAMESPACE=default
+  SECRET_NAME=ubyon-api-service-account-token
+  K8S_SA_TOKEN=$(kubectl get secret --namespace "${NAMESPACE}" "${SECRET_NAME}" -o json | jq -r '.data["token"]' | base64 -d)
+  echo "$K8S_SA_TOKEN"
+  export K8S_SA_TOKEN
+  kubectl get cm ubyonac -o yaml | sed 's/k8s_sa_token: <k8s_sa_token>/k8s_sa_token: '"$K8S_SA_TOKEN"'/g' | kubectl apply -f -
+}
 
 if [ "$ENABLE_K8S_ACCESS" == true ]; then
   echo "Enabling kubernetes access !!!!"
   enable_k8s_access
-  exit
+elif [ "$ENABLE_K8S_ACCESS" == false ]; then
+  disable_k8s_access
 fi
 
 INSTALL_FINISHED="$OUTDIR/.install_ubyonac"
 
-if [ -f $INSTALL_FINISHED ] ; then
+if [ -f "$INSTALL_FINISHED" ] ; then
   echo "Install has already finished."
   exit
 fi
@@ -73,7 +86,7 @@ install_k8s_container()
   local mars_cluster_id="$1"
   local mars_ulink_endpoint="$2"
 
-  cat > $OUTDIR/ubyonac.yaml <<EOF
+  cat > "$OUTDIR"/ubyonac.yaml <<EOF
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -97,8 +110,8 @@ spec:
         image: quay.io/ubyon/mars-ulink:1.0.0
         command: ["/home/ubyon/bin/mars"]
         args: ["--mars_cluster_id=$mars_cluster_id",
-               "--mars_ulink_endpoint=$mars_ulink_endpoint",
-               "--v=0"]
+                "--mars_ulink_endpoint=$mars_ulink_endpoint",
+                "--v=0"]
         env:
           - name: MY_POD_NAME
             valueFrom:
@@ -114,7 +127,7 @@ spec:
                 fieldPath: status.podIP
 EOF
 
-  kubectl apply -f $OUTDIR/ubyonac.yaml
+  kubectl apply -f "$OUTDIR"/ubyonac.yaml
 }
 
 install_ubyonac()
@@ -126,7 +139,7 @@ install_ubyonac()
   local reg_info="{\"ulinkId\":\"$ulink_id\",\"ulinkName\":\"$host_name\"}"
   local base64_reg_info=`echo -n $reg_info | base64 -w0`
 
-  install_k8s_container $ulink_id $UBYON_TG_FQDN
+  install_k8s_container "$ulink_id" "$UBYON_TG_FQDN"
 
   echo
   echo "==> Installation completed successfully."
@@ -138,6 +151,6 @@ mkdir -p "$OUTDIR"
 
 install_ubyonac
 
-touch $INSTALL_FINISHED
+touch "$INSTALL_FINISHED"
 
 echo
